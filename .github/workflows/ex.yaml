@@ -1,0 +1,29 @@
+name: Test
+on: 
+  push:
+   paths:
+     - README.md
+
+jobs:
+  Build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Build
+        run: echo "Building..."
+  Lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Build
+        run: echo "Linting..."
+  Test:
+    runs-on: ubuntu-latest
+    needs: [Build, Lint]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Build
+        run: echo "Testing..."
