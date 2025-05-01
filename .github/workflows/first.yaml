@@ -2,6 +2,12 @@ name: First Workflow
 on: 
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 'Person to greet'
+        required: true
+        default: 'World'
 jobs:
   first-job:
     runs-on: ubuntu-latest
