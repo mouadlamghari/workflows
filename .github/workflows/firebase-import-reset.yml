@@ -1,0 +1,164 @@
+name: Resynch Firebase Users from S3 
+
+on:
+  workflow_call:
+    inputs:
+      DUMP_FILENAME:
+        description: 'Firebase users dump filename (leave empty for latest)'
+        required: false
+        type: string
+      RESET_USERS_PASSWORD:
+        description: 'Reset users password'
+        required: true
+        default: true
+        type: boolean
+      FIREBASE_DEV_PROJECT_ID:
+        type: string
+        required: true
+      AWS_ACCESS_KEY_ID:
+        type: string
+        required: true
+      AWS_REGION:
+        type: string
+        required: true
+      S3_FIREBASE_EXPORT_URI:
+        type: string
+        required: true
+      DEV_USERS_PASSWORD:
+        type: string
+        description: 'Default password for users'
+        required: true
+    secrets:
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      FIREBASE_TOKEN:
+        required: true
+      FIREBASE_HASH_KEY:
+        required: true
+
+jobs:
+  firebase-resynch:
+    name: Import and Reset Firebase Users
+    runs-on: ubuntu-latest
+    env:
+      # Inputs
+      DUMP_FILENAME: ${{ inputs.DUMP_FILENAME }}
+      RESET_USERS_PASSWORD: ${{ inputs.RESET_USERS_PASSWORD }}
+      FIREBASE_DEV_PROJECT_ID: ${{ inputs.FIREBASE_DEV_PROJECT_ID }}
+      AWS_ACCESS_KEY_ID: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      AWS_REGION: ${{ inputs.AWS_REGION }}
+      S3_FIREBASE_EXPORT_URI: ${{ inputs.S3_FIREBASE_EXPORT_URI }}
+      DEV_USERS_PASSWORD: ${{ inputs.DEV_USERS_PASSWORD }}
+      # Secrets
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      FIREBASE_HASH_KEY: ${{ secrets.FIREBASE_HASH_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.AWS_REGION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          npm install -g firebase-tools
+          npm install firebase-admin fs-extra
+
+      - name: Download & Check dump
+        run: |
+          S3_FIREBASE_EXPORT_URI="${{ inputs.S3_FIREBASE_EXPORT_URI }}"
+          echo "DUMP_FILENAME=$DUMP_FILENAME"
+          if [[ "$DUMP_FILENAME" =~ ^\ *$ ]]; then
+            echo "No dump selected, select last one by default..."
+            dumps=($(\
+              aws s3 ls $S3_FIREBASE_EXPORT_URI | \
+                sort -r | \
+                awk '{print $4}' | \
+                grep '.json.gz$' | \
+                grep -vw '0'\
+            ))
+            if [ "${#dumps[@]}" -eq 0 ]; then
+              echo 'No dump found!'
+              exit 1
+            fi
+            echo "${#dumps[@]} dumps found, last one is ${dumps[0]}."
+            DUMP_FILENAME="${dumps[0]}"
+            echo "DUMP_FILENAME=${dumps[0]}" >> $GITHUB_ENV
+          fi
+          # Download the selected dump
+          echo "Downloading Firebase users dump $DUMP_FILENAME from S3 $S3_FIREBASE_EXPORT_URI..."
+          aws s3 cp $S3_FIREBASE_EXPORT_URI$DUMP_FILENAME /tmp/firebase-users.json.gz
+          
+          # Check if download was successful
+          if [ ! -f "/tmp/firebase-users.json.gz" ]; then
+            echo "Firebase users dump $DUMP_FILENAME not found."
+            exit 1
+          elif [ ! -s "/tmp/firebase-users.json.gz" ]; then
+            echo "Firebase users dump $DUMP_FILENAME is empty."
+            exit 1
+          fi
+          
+          # Decompress the file
+          echo "Decompressing Firebase users dump..."
+          gunzip -c /tmp/firebase-users.json.gz > $GITHUB_WORKSPACE/users.json
+          
+          # Validate JSON format
+          if ! jq empty $GITHUB_WORKSPACE/users.json 2>/dev/null; then
+            echo "Warning: Firebase users dump may not be valid JSON"
+            exit 1
+          else
+            echo "Firebase users dump validation successful"
+          fi
+
+      - name: Reset user passwords
+        if: ${{ inputs.RESET_USERS_PASSWORD }}
+        run: |
+          echo "Resetting user passwords to '$DEV_USERS_PASSWORD'..."
+          cd $GITHUB_WORKSPACE
+          node src/reset-password.ts --password="$DEV_USERS_PASSWORD" \
+            --input=users.json --output=users-changed.json \
+            --hash-key=$"FIREBASE_HASH_KEY"
+      
+      - name: Clear existing Firebase users
+        run: |
+          echo "Clearing existing Firebase users..."
+          
+          # Use the Admin SDK approach to delete users with service account
+          cd $GITHUB_WORKSPACE
+          node src/delete-user.ts --project="$FIREBASE_DEV_PROJECT_ID" 
+          
+          echo "All existing users cleared"
+
+      - name: Import Firebase users with reset passwords
+        run: |
+          echo "Importing Firebase users with reset passwords..."
+          cd $GITHUB_WORKSPACE
+          
+          # Debug the hash key (don't include this in production)
+          # echo "Hash key length: ${#HASH_KEY}"
+          
+          # Make sure to properly quote the hash key to handle special characters
+          firebase auth:import users-changed.json \
+            --project "$FIREBASE_DEV_PROJECT_ID" \
+            --token="$FIREBASE_TOKEN" \
+            --hash-algo=SCRYPT --rounds=8 --mem-cost=14 \
+            --salt-separator=Bw== \
+             --hash-key="$FIREBASE_HASH_KEY"
+          
+          # Verify import by counting users
+          firebase auth:export /tmp/verification.json \
+            --project "$FIREBASE_DEV_PROJECT_ID" \
+            --token="$FIREBASE_TOKEN"
+          IMPORTED_COUNT=$(jq '.users | length' /tmp/verification.json)
+          echo "Successfully imported $IMPORTED_COUNT Firebase users with password '$DEV_USERS_PASSWORD'"

@@ -1,0 +1,34 @@
+name: Resynch Firebase Users from S3 
+
+concurrency:
+  group: firebase-resynch
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      DUMP_FILENAME:
+        description: 'Dump (empty => use last)'
+        required: false
+        type: string
+      RESET_USERS_PASSWORD:
+        description: Reset users password
+        type: boolean
+        required: true
+        default: true
+
+jobs:
+  resynch-firebase:
+    uses: mouadlamghari/workflows/.github/workflows/firebase-import-reset.yml@main
+    secrets:
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      FIREBASE_HASH_KEY: ${{ secrets.FIREBASE_HASH_KEY }}
+    with:
+      RESET_USERS_PASSWORD: ${{ inputs.RESET_USERS_PASSWORD }}
+      FIREBASE_DEV_PROJECT_ID: ${{ vars.FIREBASE_DEV_PROJECT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      S3_FIREBASE_EXPORT_URI: ${{ vars.S3_FIREBASE_EXPORT_URI }}
+      AWS_ACCESS_KEY_ID: ${{ vars.AWS_ACCESS_KEY_ID }}
+      DEV_USERS_PASSWORD: ${{ vars.DEV_USERS_PASSWORD }}
+      DUMP_FILENAME: ${{ inputs.DUMP_FILENAME }}

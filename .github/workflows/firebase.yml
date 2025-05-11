@@ -1,0 +1,29 @@
+name: Backup from Firebase to S3
+
+on:
+  schedule:
+    - cron: '45 23 * * *'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      USE_SHORT_SHA_TAG:
+        type: boolean
+        required: false
+        default: true
+    secrets:
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      FIREBASE_TOKEN:
+        required: true
+
+jobs:        
+  backup:
+    uses: mouadlamghari/workflows/.github/workflows/firebase-backup.yml@main
+    secrets: inherit
+    with:
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      S3_FIREBASE_EXPORT_URI: ${{ vars.S3_FIREBASE_EXPORT_URI }}
+      S3_FIREBASE_EXPORT_MAX_DUMPS: ${{ fromJSON(vars.S3_FIREBASE_EXPORT_MAX_DUMPS) }}
+      AWS_ACCESS_KEY_ID: ${{ vars.AWS_ACCESS_KEY_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      USE_SHORT_SHA_TAG: ${{ inputs.USE_SHORT_SHA_TAG == true }}

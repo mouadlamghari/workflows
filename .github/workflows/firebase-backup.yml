@@ -1,0 +1,123 @@
+name: Firebase Users Backup to S3
+
+on:
+  workflow_call:
+    inputs:
+      FIREBASE_PROJECT_ID:
+        type: string
+        required: true
+      S3_FIREBASE_EXPORT_URI:
+        type: string
+        required: true
+      S3_FIREBASE_EXPORT_MAX_DUMPS:
+        type: number
+        required: true
+      AWS_ACCESS_KEY_ID:
+        type: string
+        required: true
+      AWS_REGION:
+        type: string
+        required: true
+      USE_SHORT_SHA_TAG:
+        type: boolean
+        required: true
+        default: true
+    secrets:
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      FIREBASE_TOKEN:
+        required: true
+
+jobs:
+  backup-firebase-users:
+    name: Backup Firebase Users
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.AWS_REGION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '20'
+
+      - name: Install Firebase Tools
+        run: npm install -g firebase-tools
+
+      - name: Generate Dump Tag
+        if: ${{ inputs.USE_SHORT_SHA_TAG }}
+        run: echo "DUMP_TAG=_${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+      - name: Export Firebase Users to S3
+        run: |
+          DUMP_FILENAME=firebase_users_`date +"%Y%m%d_%H%M%S"`$DUMP_TAG.json.gz
+          echo "Exporting Firebase users to ${{ inputs.S3_FIREBASE_EXPORT_URI }}$DUMP_FILENAME ..."
+          
+          # Export Firebase users using auth:export command
+          firebase auth:export /tmp/firebase-users.json \
+            --project ${{ inputs.FIREBASE_PROJECT_ID }} \
+            --token ${{ secrets.FIREBASE_TOKEN }}
+          
+          # Verify the export was successful
+          if [ ! -f /tmp/firebase-users.json ]; then
+            echo "Error: Firebase export failed - output file not found"
+            exit 1
+          fi
+          
+          # Check if the file is valid JSON
+          if ! jq empty /tmp/firebase-users.json 2>/dev/null; then
+            echo "Warning: Firebase export may not be valid JSON"
+          else
+            echo "Firebase export validation successful"
+          fi
+          
+          # Compress and upload to S3
+          gzip -c /tmp/firebase-users.json | aws s3 cp - ${{ inputs.S3_FIREBASE_EXPORT_URI }}$DUMP_FILENAME
+          
+          # Verify upload was successful
+          if aws s3 ls ${{ inputs.S3_FIREBASE_EXPORT_URI }}$DUMP_FILENAME; then
+            echo "Upload to S3 successful"
+          else
+            echo "Error: Upload to S3 failed - file not found in bucket"
+            exit 1
+          fi
+
+      - name: Purge Firebase Users Backup History
+        run: |
+          echo "Only keep last ${{ inputs.S3_FIREBASE_EXPORT_MAX_DUMPS }} dumps ..."
+          echo "S3 URI: ${{ inputs.S3_FIREBASE_EXPORT_URI }}"
+          
+          # Debug AWS credentials
+          echo "Checking AWS credentials..."
+          aws sts get-caller-identity || { echo "AWS credentials issue detected"; exit 1; }
+          
+          # List files in S3 bucket with error handling
+          echo "Listing files in S3 bucket..."
+          if ! aws s3 ls ${{ inputs.S3_FIREBASE_EXPORT_URI }}; then
+            echo "Error: Cannot list files in S3 bucket. Check S3 URI and permissions."
+            exit 1
+          fi
+          
+          # Continue with purge logic with error handling
+          aws s3 ls ${{ inputs.S3_FIREBASE_EXPORT_URI }} | \
+            sort -r | \
+            awk '{print $4}' | \
+            grep -E 'firebase_users_.*\.json\.gz$' > /tmp/firebase-dumps.txt 
+          
+          DUMPS_COUNT=$(wc -l /tmp/firebase-dumps.txt | awk '{print $1}')
+          echo "$DUMPS_COUNT dumps found"
+          
+          if [ "$DUMPS_COUNT" -gt "${{ inputs.S3_FIREBASE_EXPORT_MAX_DUMPS }}" ]; then
+            echo "$((DUMPS_COUNT-${{ inputs.S3_FIREBASE_EXPORT_MAX_DUMPS }})) dumps to be purged"
+            tail -n +$((${{ inputs.S3_FIREBASE_EXPORT_MAX_DUMPS }}+1)) /tmp/firebase-dumps.txt | \
+            while read -r line; do  
+              echo "Removing \"${line}\""
+              aws s3 rm ${{ inputs.S3_FIREBASE_EXPORT_URI }}${line} || echo "Failed to remove ${line}"
+            done
+          else 
+            echo "Nothing to purge"
+          fi

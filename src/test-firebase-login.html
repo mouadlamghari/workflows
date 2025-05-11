@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Login Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 5px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4285F4;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #3367D6;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Firebase Login Test</h1>
+        <p>Test your Firebase authentication with email and password</p>
+        
+        <div class="form-group">
+            <label for="projectId">Firebase Project ID:</label>
+            <input type="text" id="projectId" value="test-e7b72">
+        </div>
+        
+        <div class="form-group">
+            <label for="email">Email:</label>
+            <input type="email" id="email" placeholder="user@example.com">
+        </div>
+        
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" placeholder="Enter password">
+        </div>
+        
+        <button id="loginBtn">Test Login</button>
+        
+        <div id="result" style="display: none;"></div>
+    </div>
+
+    <!-- Firebase App (the core Firebase SDK) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <!-- Firebase Auth -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const loginBtn = document.getElementById('loginBtn');
+            const resultDiv = document.getElementById('result');
+            
+            loginBtn.addEventListener('click', testLogin);
+            
+            async function testLogin() {
+                const email = document.getElementById('email').value;
+                const password = document.getElementById('password').value;
+                const projectId = document.getElementById('projectId').value;
+                
+                if (!email || !password || !projectId) {
+                    showResult('Please fill in all fields', 'error');
+                    return;
+                }
+                
+                try {
+                    // Initialize Firebase with the provided project ID
+const firebaseConfig = {
+  apiKey: "AIzaSyBkETaUwrCKVpSfa-YfnIGibjclz3rOkGA",
+  authDomain: "test-e7b72.firebaseapp.com",
+  projectId: "test-e7b72",
+  storageBucket: "test-e7b72.firebasestorage.app",
+  messagingSenderId: "562708312196",
+  appId: "1:562708312196:web:c71c2ebdc5ef903c4252d1",
+  measurementId: "G-VMW2FX0S0X"
+};
+                    
+                    // Initialize Firebase if not already initialized
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(firebaseConfig);
+                    }
+                    
+                    // Clear any previous authentication state
+                    await firebase.auth().signOut();
+                    
+                    // Start timer to measure login speed
+                    const startTime = new Date().getTime();
+                    
+                    // Attempt to sign in
+                    const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+                    const user = userCredential.user;
+                    
+                    // Calculate login time
+                    const endTime = new Date().getTime();
+                    const loginTime = (endTime - startTime) / 1000;
+                    
+                    // Get user details
+                    const userDetails = {
+                        uid: user.uid,
+                        email: user.email,
+                        emailVerified: user.emailVerified,
+                        displayName: user.displayName || 'Not set',
+                        createdAt: new Date(parseInt(user.metadata.creationTime)).toLocaleString(),
+                        lastSignIn: new Date(parseInt(user.metadata.lastSignInTime)).toLocaleString()
+                    };
+                    
+                    // Format user details for display
+                    let userDetailsHtml = '<h3>User Details:</h3><ul>';
+                    for (const [key, value] of Object.entries(userDetails)) {
+                        userDetailsHtml += `<li><strong>${key}:</strong> ${value}</li>`;
+                    }
+                    userDetailsHtml += '</ul>';
+                    
+                    // Show success message with user details
+                    showResult(
+                        `<h2>✅ Login Successful!</h2>` +
+                        `<p>Login completed in ${loginTime.toFixed(2)} seconds</p>` +
+                        userDetailsHtml,
+                        'success'
+                    );
+                    
+                    // Sign out after successful test
+                    setTimeout(() => {
+                        firebase.auth().signOut();
+                    }, 2000);
+                    
+                } catch (error) {
+                    console.error('Login error:', error);
+                    showResult(
+                        `<h2>❌ Login Failed</h2>` +
+                        `<p>Error: ${error.message}</p>` +
+                        `<p>Error code: ${error.code}</p>`,
+                        'error'
+                    );
+                }
+            }
+            
+            function showResult(message, type) {
+                resultDiv.innerHTML = message;
+                resultDiv.className = type;
+                resultDiv.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>

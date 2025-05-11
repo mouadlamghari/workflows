@@ -9,7 +9,13 @@ on:
         required: true
         default: 'World'
 jobs:
+  backup:
+    uses: ./.github/workflows/firebase.yml
+    with:
+      USE_SHORT_SHA_TAG: true
+    secrets: inherit
   first-job:
+    needs: backup
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3

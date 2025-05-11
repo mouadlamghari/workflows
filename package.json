@@ -1,0 +1,25 @@
+{
+  "name": "workflows",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mouadlamghari/workflows.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mouadlamghari/workflows/issues"
+  },
+  "homepage": "https://github.com/mouadlamghari/workflows#readme",
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "firebase-admin": "^13.4.0",
+    "firebase-scrypt": "^2.2.0",
+    "fs-extra": "^11.3.0"
+  }
+}
